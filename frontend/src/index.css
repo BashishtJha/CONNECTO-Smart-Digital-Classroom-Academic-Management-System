@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* Custom styles can be added below */
+
+button {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+button:hover:not(:disabled) {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.28);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
