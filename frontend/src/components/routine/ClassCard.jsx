@@ -5,7 +5,7 @@ const ClassCard = ({ data }) => {
       <p className="text-sm text-gray-500">
         📍 {data.room}
       </p>
-
+/* this section is adding for notification*/
       {data.notify && (
         <span className="absolute top-2 right-2 text-indigo-600">
           🔔
