@@ -8,32 +8,31 @@ const Login = () => {
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
-  e.preventDefault();
-  try {
-    const res = await axios.post(
-      "http://localhost:5000/api/auth/login",
-      { email, password }
-    );
+    e.preventDefault();
+    try {
+      const res = await axios.post("http://localhost:5000/api/auth/login", {
+        email,
+        password,
+      });
 
-    const role = res.data.user.role;
-    console.log("ROLE FROM BACKEND:", role); // DEBUG
+      const role = res.data.user.role;
+      console.log("ROLE FROM BACKEND:", role);
 
-    localStorage.setItem("token", res.data.token);
-    localStorage.setItem("role", role);
+      localStorage.setItem("token", res.data.token);
+      localStorage.setItem("role", role);
 
-    if (role === "student") {
-      navigate("/student/home", { replace: true });
-    } else if (role === "teacher") {
-      navigate("/teacher/home", { replace: true });
-    } else {
-      alert("Unknown role");
+      if (role === "student") {
+        navigate("/student/home", { replace: true });
+      } else if (role === "teacher") {
+        navigate("/teacher/home", { replace: true });
+      } else {
+        alert("Unknown role");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Invalid credentials");
     }
-  } catch (err) {
-    console.error(err);
-    alert("Invalid credentials");
-  }
-};
-
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -68,6 +67,15 @@ const Login = () => {
             onChange={(e) => setPassword(e.target.value)}
           />
 
+          <div className="text-right">
+            <p
+              onClick={() => navigate("/forgot-password")}
+              className="text-sm text-indigo-600 hover:text-indigo-700 cursor-pointer"
+            >
+              Forgot Password?
+            </p>
+          </div>
+
           <button
             type="submit"
             className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition"
@@ -75,12 +83,11 @@ const Login = () => {
             Login
           </button>
           <p
-  onClick={() => navigate("/select-role")}
-  className="text-center text-indigo-600 mt-4 cursor-pointer"
->
-  New user? Register here
-</p>
-
+            onClick={() => navigate("/select-role")}
+            className="text-center text-indigo-600 mt-4 cursor-pointer"
+          >
+            New user? Register here
+          </p>
         </form>
       </div>
     </div>

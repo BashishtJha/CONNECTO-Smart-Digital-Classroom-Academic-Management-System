@@ -2,8 +2,17 @@ const express = require("express");
 const router = express.Router();
 
 const Subject = require("../models/Subject");
+const Assignment = require("../models/Assignment");
+const Attendance = require("../models/Attendance");
 const ChatRoom = require("../models/ChatRoom");
+const ChatMessage = require("../models/ChatMessage");
+const ChatAnnouncement = require("../models/ChatAnnouncement");
+const Note = require("../models/Note");
+const Resource = require("../models/Resource");
+const Routine = require("../models/Routine");
+const Syllabus = require("../models/Syllabus");
 const User = require("../models/User");
+const VideoLecture = require("../models/VideoLecture");
 const authMiddleware = require("../middleware/authMiddleware");
 
 const toUniqueIds = (list = []) => {
@@ -242,6 +251,51 @@ router.patch("/:subjectId", authMiddleware, async (req, res) => {
     const isValidationError = Boolean(err?.message && err.message.includes("not valid"));
     const message = isValidationError ? err.message : "Failed to update subject";
     res.status(isValidationError ? 400 : 500).json({ message });
+  }
+});
+
+// DELETE subject/group (teacher owners only)
+router.delete("/:subjectId", authMiddleware, async (req, res) => {
+  try {
+    if (req.user.role !== "teacher") {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    const { subjectId } = req.params;
+    const subject = await Subject.findById(subjectId);
+    if (!subject) {
+      return res.status(404).json({ message: "Subject not found" });
+    }
+
+    if (!canManageSubject(subject, req.user.id)) {
+      return res.status(403).json({ message: "Only owners can delete this group" });
+    }
+
+    const room = await ChatRoom.findOne({ subject: subjectId }).select("_id");
+    if (room?._id) {
+      await Promise.all([
+        ChatMessage.deleteMany({ room: room._id }),
+        ChatAnnouncement.deleteMany({ room: room._id }),
+        ChatRoom.deleteOne({ _id: room._id }),
+      ]);
+    }
+
+    await Promise.all([
+      Assignment.deleteMany({ subject: subjectId }),
+      Attendance.deleteMany({ subject: subjectId }),
+      Note.deleteMany({ subject: subjectId }),
+      Resource.deleteMany({ subject: subjectId }),
+      Routine.deleteMany({ subject: subjectId }),
+      Syllabus.deleteMany({ subject: subjectId }),
+      VideoLecture.deleteMany({ subject: subjectId }),
+    ]);
+
+    await Subject.deleteOne({ _id: subjectId });
+
+    res.json({ message: "Classroom deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete classroom" });
   }
 });
 

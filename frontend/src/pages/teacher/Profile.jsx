@@ -12,8 +12,24 @@ import {
   BookOpenIcon,
 } from "@heroicons/react/24/outline";
 
-const StatCard = ({ label, value, icon }) => (
-  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
+const formatDate = (value) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "N/A";
+  }
+  return parsed.toLocaleDateString();
+};
+
+const StatCard = ({ label, value, icon, active, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`bg-slate-50 rounded-2xl p-4 border text-left transition ${
+      active
+        ? "border-indigo-300 bg-indigo-50/50 shadow-sm"
+        : "border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/30"
+    }`}
+  >
     <div className="flex items-center justify-between">
       <p className="text-xs text-slate-500 uppercase tracking-wide">{label}</p>
       <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-indigo-600">
@@ -21,7 +37,8 @@ const StatCard = ({ label, value, icon }) => (
       </div>
     </div>
     <p className="text-3xl font-semibold mt-3 text-slate-900">{value}</p>
-  </div>
+    <p className="text-xs text-slate-500 mt-2">Click to view details</p>
+  </button>
 );
 
 const DetailRow = ({ label, value }) => (
@@ -44,6 +61,7 @@ const Profile = () => {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [activeStat, setActiveStat] = useState("rooms");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [showCropModal, setShowCropModal] = useState(false);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState("");
@@ -61,6 +79,81 @@ const Profile = () => {
     if (!subjects.length) return 0;
     return subjects.reduce((sum, subject) => sum + (subject.assignmentCount || 0), 0);
   }, [subjects]);
+
+  const roomDetails = useMemo(
+    () =>
+      rooms.map((room) => ({
+        id: room._id,
+        name: room.name || room.subject?.name || "Untitled room",
+        code: room.subject?.code || "",
+        members: room.members?.length || 0,
+      })),
+    [rooms]
+  );
+
+  const studentDetails = useMemo(() => {
+    const byId = new Map();
+
+    subjects.forEach((subject) => {
+      (subject.students || []).forEach((student) => {
+        const id = typeof student === "object" ? student._id : student;
+        if (!id) return;
+
+        if (!byId.has(id)) {
+          byId.set(id, {
+            id,
+            name: typeof student === "object" ? student.name || "Student" : "Student",
+            email: typeof student === "object" ? student.email || "" : "",
+            subjects: new Set(),
+          });
+        }
+
+        const current = byId.get(id);
+        current.subjects.add(subject.name || "Subject");
+      });
+    });
+
+    return Array.from(byId.values())
+      .map((student) => ({
+        ...student,
+        subjects: Array.from(student.subjects),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [subjects]);
+
+  const assignmentDetails = useMemo(() => {
+    const details = [];
+
+    subjects.forEach((subject) => {
+      (subject.assignments || []).forEach((assignment) => {
+        details.push({
+          id: assignment._id,
+          title: assignment.title || "Untitled assignment",
+          subjectName: subject.name || "Subject",
+          subjectCode: subject.code || "",
+          dueDate: assignment.dueDate,
+        });
+      });
+    });
+
+    return details.sort((a, b) => {
+      const dateA = new Date(a.dueDate).getTime();
+      const dateB = new Date(b.dueDate).getTime();
+      return dateA - dateB;
+    });
+  }, [subjects]);
+
+  const subjectDetails = useMemo(
+    () =>
+      subjects.map((subject) => ({
+        id: subject._id,
+        name: subject.name || "Untitled subject",
+        code: subject.code || "",
+        students: subject.students?.length || 0,
+        assignments: subject.assignmentCount || 0,
+      })),
+    [subjects]
+  );
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -87,9 +180,14 @@ const Profile = () => {
               `http://localhost:5000/api/assignments/subject/${subject._id}`,
               { headers: { Authorization: `Bearer ${token}` } }
             );
-            return { ...subject, assignmentCount: (res.data || []).length };
+            const assignments = Array.isArray(res.data) ? res.data : [];
+            return {
+              ...subject,
+              assignmentCount: assignments.length,
+              assignments,
+            };
           } catch {
-            return { ...subject, assignmentCount: 0 };
+            return { ...subject, assignmentCount: 0, assignments: [] };
           }
         })
       );
@@ -109,6 +207,18 @@ const Profile = () => {
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  const handleStatClick = (key) => {
+    setActiveStat((prev) => (prev === key ? "" : key));
+  };
+
+  const activeStatTitle = useMemo(() => {
+    if (!activeStat) return "Details";
+    if (activeStat === "students") return "Total Students Details";
+    if (activeStat === "assignments") return "Assignments Details";
+    if (activeStat === "subjects") return "Subjects Details";
+    return "Rooms Created Details";
+  }, [activeStat]);
 
   const saveProfile = async () => {
     if (!name.trim() || !email.trim()) {
@@ -358,22 +468,141 @@ const Profile = () => {
                 label="Rooms Created"
                 value={rooms.length}
                 icon={<RectangleGroupIcon className="h-5 w-5" />}
+                active={activeStat === "rooms"}
+                onClick={() => handleStatClick("rooms")}
               />
               <StatCard
                 label="Total Students"
                 value={totalStudents}
                 icon={<UserGroupIcon className="h-5 w-5" />}
+                active={activeStat === "students"}
+                onClick={() => handleStatClick("students")}
               />
               <StatCard
                 label="Assignments"
                 value={totalAssignments}
                 icon={<ClipboardDocumentListIcon className="h-5 w-5" />}
+                active={activeStat === "assignments"}
+                onClick={() => handleStatClick("assignments")}
               />
               <StatCard
                 label="Subjects"
                 value={subjects.length}
                 icon={<BookOpenIcon className="h-5 w-5" />}
+                active={activeStat === "subjects"}
+                onClick={() => handleStatClick("subjects")}
               />
+            </div>
+
+            <div className="mt-4 border border-slate-200 rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                <p className="text-sm font-semibold text-slate-800">{activeStatTitle}</p>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto">
+                {activeStat === "rooms" && (
+                  <>
+                    {roomDetails.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-slate-500">No rooms found.</p>
+                    ) : (
+                      roomDetails.map((room) => (
+                        <div
+                          key={room.id}
+                          className="px-4 py-3 border-b last:border-b-0 border-slate-100 flex items-start justify-between gap-3"
+                        >
+                          <div>
+                            <p className="font-medium text-slate-900">{room.name}</p>
+                            <p className="text-sm text-slate-500">
+                              {room.code ? `Code: ${room.code}` : "No subject code"}
+                            </p>
+                          </div>
+                          <p className="text-sm text-slate-600">{room.members} members</p>
+                        </div>
+                      ))
+                    )}
+                  </>
+                )}
+
+                {activeStat === "students" && (
+                  <>
+                    {studentDetails.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-slate-500">No students found.</p>
+                    ) : (
+                      studentDetails.map((student) => (
+                        <div
+                          key={student.id}
+                          className="px-4 py-3 border-b last:border-b-0 border-slate-100"
+                        >
+                          <p className="font-medium text-slate-900">{student.name}</p>
+                          <p className="text-sm text-slate-500">
+                            {student.email || "No email available"}
+                          </p>
+                          <p className="text-sm text-slate-600 mt-1">
+                            Subjects: {student.subjects.join(", ")}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </>
+                )}
+
+                {activeStat === "assignments" && (
+                  <>
+                    {assignmentDetails.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-slate-500">No assignments found.</p>
+                    ) : (
+                      assignmentDetails.map((assignment) => (
+                        <div
+                          key={assignment.id}
+                          className="px-4 py-3 border-b last:border-b-0 border-slate-100 flex items-start justify-between gap-3"
+                        >
+                          <div>
+                            <p className="font-medium text-slate-900">{assignment.title}</p>
+                            <p className="text-sm text-slate-500">
+                              {assignment.subjectName}
+                              {assignment.subjectCode ? ` (${assignment.subjectCode})` : ""}
+                            </p>
+                          </div>
+                          <p className="text-sm text-slate-600">
+                            Due: {formatDate(assignment.dueDate)}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </>
+                )}
+
+                {activeStat === "subjects" && (
+                  <>
+                    {subjectDetails.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-slate-500">No subjects found.</p>
+                    ) : (
+                      subjectDetails.map((subject) => (
+                        <div
+                          key={subject.id}
+                          className="px-4 py-3 border-b last:border-b-0 border-slate-100 flex items-start justify-between gap-3"
+                        >
+                          <div>
+                            <p className="font-medium text-slate-900">{subject.name}</p>
+                            <p className="text-sm text-slate-500">
+                              {subject.code ? `Code: ${subject.code}` : "No subject code"}
+                            </p>
+                          </div>
+                          <p className="text-sm text-slate-600">
+                            {subject.students} students, {subject.assignments} assignments
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </>
+                )}
+
+                {!activeStat && (
+                  <p className="px-4 py-6 text-sm text-slate-500">
+                    Click any statistics card to view details.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -113,10 +113,23 @@ const Home = () => {
           )
         );
 
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
         const pending = assignmentResponses
           .flatMap(({ subject, assignments }) =>
             assignments
-              .filter((item) => item.studentStatus !== "submitted")
+              .filter((item) => {
+                if (item.studentStatus === "submitted") return false;
+                const due = new Date(item.dueDate);
+                if (Number.isNaN(due.getTime())) return false;
+                const dueStart = new Date(
+                  due.getFullYear(),
+                  due.getMonth(),
+                  due.getDate()
+                );
+                return dueStart >= todayStart;
+              })
               .map((item) => ({
                 id: item._id,
                 title: item.title,

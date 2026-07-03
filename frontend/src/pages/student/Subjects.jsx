@@ -409,21 +409,38 @@ const Subjects = () => {
                         className={`text-xs px-2 py-1 rounded-full ${
                           assignment.studentStatus === "submitted"
                             ? "bg-green-100 text-green-700"
+                            : assignment.studentStatus === "not_submitted"
+                            ? "bg-red-100 text-red-700"
                             : "bg-yellow-100 text-yellow-700"
                         }`}
                       >
                         {assignment.studentStatus === "submitted"
                           ? "Submitted"
+                          : assignment.studentStatus === "not_submitted"
+                          ? "Not Submitted"
                           : "Pending"}
                       </span>
                     </div>
                     <p className="text-sm text-gray-500 mt-1">
-                      Due {new Date(assignment.dueDate).toLocaleDateString()}
+                      Created {new Date(assignment.createdAt).toLocaleDateString()}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Last Date {new Date(assignment.dueDate).toLocaleDateString()}
                     </p>
                     {assignment.description && (
                       <p className="text-sm text-gray-600 mt-2">
                         {assignment.description}
                       </p>
+                    )}
+                    {assignment.attachmentUrl && (
+                      <a
+                        href={`http://localhost:5000${assignment.attachmentUrl}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-block text-sm text-indigo-600 hover:underline"
+                      >
+                        View Assignment PDF
+                      </a>
                     )}
                     {assignment.studentStatus !== "submitted" && (
                       <button

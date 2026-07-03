@@ -98,6 +98,8 @@ const Rooms = () => {
 
   const [assignments, setAssignments] = useState([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [assignmentSubmissionMap, setAssignmentSubmissionMap] = useState({});
+  const [assignmentSubmissionLoading, setAssignmentSubmissionLoading] = useState(false);
 
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -113,6 +115,7 @@ const Rooms = () => {
   const [selectedTeacherId, setSelectedTeacherId] = useState("");
   const [selectedOwnerId, setSelectedOwnerId] = useState("");
   const [selectedPrimaryOwnerId, setSelectedPrimaryOwnerId] = useState("");
+  const [deletingClassroom, setDeletingClassroom] = useState(false);
 
   const activeSubject = useMemo(
     () => subjects.find((item) => item._id === activeSubjectId) || null,
@@ -528,6 +531,31 @@ const Rooms = () => {
     await updateActiveGroup({ primaryOwnerId: selectedPrimaryOwnerId });
   };
 
+  const deleteClassroom = async () => {
+    if (!activeSubjectId || !activeSubject) return;
+
+    const confirmed = window.confirm(
+      `Delete classroom "${activeSubject.name}"?\n\nThis will remove related chat, assignments, attendance, notes, resources, and lectures.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingClassroom(true);
+      await axios.delete(`http://localhost:5000/api/subjects/${activeSubjectId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      await fetchRooms();
+      await fetchSubjects();
+      setActiveTab("Chat");
+    } catch (err) {
+      console.error("Failed to delete classroom", err);
+      alert(err?.response?.data?.message || "Failed to delete classroom");
+    } finally {
+      setDeletingClassroom(false);
+    }
+  };
+
   const fetchDailyAttendance = useCallback(async () => {
     if (!activeSubjectId) return;
 
@@ -668,15 +696,88 @@ const Rooms = () => {
     } catch (err) {
       console.error("Failed to fetch assignments", err);
       setAssignments([]);
+      setAssignmentSubmissionMap({});
     } finally {
       setAssignmentsLoading(false);
     }
   }, [activeSubjectId, token]);
 
+  const fetchAssignmentSubmissionSummary = useCallback(
+    async (assignmentList = []) => {
+      if (!assignmentList.length) {
+        setAssignmentSubmissionMap({});
+        return;
+      }
+
+      try {
+        setAssignmentSubmissionLoading(true);
+        const responses = await Promise.all(
+          assignmentList.map((assignment) =>
+            axios.get(
+              `http://localhost:5000/api/assignments/${assignment._id}/submissions`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            )
+          )
+        );
+
+        const allStudents = activeStudents.map((student) => ({
+          _id: getEntityId(student),
+          name: student.name || "Student",
+          email: student.email || "",
+        }));
+
+        const summaryMap = {};
+        assignmentList.forEach((assignment, index) => {
+          const submissions = responses[index]?.data?.submissions || [];
+          const submittedStudents = submissions
+            .filter(
+              (submission) =>
+                submission?.status === "submitted" && submission?.student
+            )
+            .map((submission) => {
+              const student = submission.student;
+              const studentId = getEntityId(student);
+              return {
+                _id: studentId,
+                name: student?.name || "Student",
+                email: student?.email || "",
+                submittedAt: submission.submittedAt,
+              };
+            });
+
+          const submittedIdSet = new Set(
+            submittedStudents.map((student) => student._id)
+          );
+          const notSubmittedStudents = allStudents.filter(
+            (student) => !submittedIdSet.has(student._id)
+          );
+
+          summaryMap[assignment._id] = {
+            submitted: submittedStudents,
+            notSubmitted: notSubmittedStudents,
+          };
+        });
+
+        setAssignmentSubmissionMap(summaryMap);
+      } catch (err) {
+        console.error("Failed to fetch assignment submissions", err);
+        setAssignmentSubmissionMap({});
+      } finally {
+        setAssignmentSubmissionLoading(false);
+      }
+    },
+    [activeStudents, token]
+  );
+
   useEffect(() => {
     if (activeTab !== "Assignments") return;
     fetchAssignments();
   }, [activeTab, fetchAssignments]);
+
+  useEffect(() => {
+    if (activeTab !== "Assignments") return;
+    fetchAssignmentSubmissionSummary(assignments);
+  }, [activeTab, assignments, fetchAssignmentSubmissionSummary]);
 
   const setStatus = (studentId, status) => {
     setStudents((prev) =>
@@ -1074,17 +1175,71 @@ const Rooms = () => {
                     <p className="text-gray-500">No assignments yet.</p>
                   ) : (
                     <div className="space-y-4">
+                      {assignmentSubmissionLoading && (
+                        <p className="text-sm text-gray-500">Loading submission details...</p>
+                      )}
                       {assignments.map((item) => (
                         <div key={item._id} className="border rounded-xl p-4">
                           <div className="flex items-center justify-between">
                             <h4 className="font-semibold">{item.title}</h4>
-                            <span className="text-sm text-gray-500">
-                              Due {new Date(item.dueDate).toLocaleDateString()}
-                            </span>
                           </div>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Created {new Date(item.createdAt).toLocaleDateString()}
+                          </p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Last Date {new Date(item.dueDate).toLocaleDateString()}
+                          </p>
                           {item.description && (
                             <p className="text-sm text-gray-600 mt-2">{item.description}</p>
                           )}
+                          {item.attachmentUrl && (
+                            <a
+                              href={`http://localhost:5000${item.attachmentUrl}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block mt-3 text-sm text-indigo-600 hover:underline"
+                            >
+                              View Assignment PDF
+                            </a>
+                          )}
+
+                          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div className="border rounded-lg p-3">
+                              <p className="text-sm font-semibold text-green-700">
+                                Submitted (
+                                {assignmentSubmissionMap[item._id]?.submitted?.length || 0})
+                              </p>
+                              {assignmentSubmissionMap[item._id]?.submitted?.length ? (
+                                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                                  {assignmentSubmissionMap[item._id].submitted.map((student) => (
+                                    <div key={student._id} className="text-xs text-gray-700">
+                                      {student.name}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-gray-500">No submissions yet.</p>
+                              )}
+                            </div>
+
+                            <div className="border rounded-lg p-3">
+                              <p className="text-sm font-semibold text-red-700">
+                                Not Submitted (
+                                {assignmentSubmissionMap[item._id]?.notSubmitted?.length || 0})
+                              </p>
+                              {assignmentSubmissionMap[item._id]?.notSubmitted?.length ? (
+                                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                                  {assignmentSubmissionMap[item._id].notSubmitted.map((student) => (
+                                    <div key={student._id} className="text-xs text-gray-700">
+                                      {student.name}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-xs text-gray-500">All students submitted.</p>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1326,12 +1481,22 @@ const Rooms = () => {
                         Total Students: {summary?.totalStudents ?? activeSubject.students?.length ?? 0}
                       </p>
                     </div>
-                    <button
-                      onClick={downloadSummaryReport}
-                      className="bg-indigo-600 text-white px-5 py-2 rounded-lg"
-                    >
-                      Download Attendance PDF
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={downloadSummaryReport}
+                        className="bg-indigo-600 text-white px-5 py-2 rounded-lg"
+                      >
+                        Download Attendance PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deleteClassroom}
+                        disabled={deletingClassroom}
+                        className="bg-red-600 text-white px-5 py-2 rounded-lg disabled:opacity-60"
+                      >
+                        {deletingClassroom ? "Deleting..." : "Delete Classroom"}
+                      </button>
+                    </div>
                   </div>
 
                   {summaryLoading ? (

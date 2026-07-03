@@ -18,6 +18,7 @@ const Profile = () => {
   const [overallAttendance, setOverallAttendance] = useState(0);
   const [completedAssignments, setCompletedAssignments] = useState(0);
   const [pendingAssignments, setPendingAssignments] = useState(0);
+  const [notSubmittedAssignments, setNotSubmittedAssignments] = useState(0);
 
   const fetchProfileData = useCallback(async () => {
     try {
@@ -70,11 +71,15 @@ const Profile = () => {
         (item) => item.studentStatus === "submitted"
       ).length;
       const pending = allAssignments.filter(
-        (item) => item.studentStatus !== "submitted"
+        (item) => item.studentStatus === "pending"
+      ).length;
+      const notSubmitted = allAssignments.filter(
+        (item) => item.studentStatus === "not_submitted"
       ).length;
 
       setCompletedAssignments(completed);
       setPendingAssignments(pending);
+      setNotSubmittedAssignments(notSubmitted);
     } catch (err) {
       console.error("Profile fetch failed", err);
     } finally {
@@ -196,6 +201,7 @@ const Profile = () => {
         <ProfileStats
           completedAssignments={completedAssignments}
           pendingAssignments={pendingAssignments}
+          notSubmittedAssignments={notSubmittedAssignments}
         />
       </div>
     </div>

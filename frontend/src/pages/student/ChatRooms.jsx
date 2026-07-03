@@ -340,15 +340,37 @@ const ChatRooms = () => {
                             {item.description && (
                               <p className="text-sm text-gray-600 mt-1">{item.description}</p>
                             )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              Created {new Date(item.createdAt).toLocaleDateString()}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Last Date {new Date(item.dueDate).toLocaleDateString()}
+                            </p>
+                            {item.attachmentUrl && (
+                              <a
+                                href={`http://localhost:5000${item.attachmentUrl}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block mt-2 text-sm text-indigo-600 hover:underline"
+                              >
+                                View Assignment PDF
+                              </a>
+                            )}
                           </div>
                           <span
                             className={`px-3 py-1 rounded-full text-sm ${
                               item.studentStatus === "submitted"
                                 ? "bg-green-100 text-green-700"
+                                : item.studentStatus === "not_submitted"
+                                ? "bg-red-100 text-red-700"
                                 : "bg-yellow-100 text-yellow-700"
                             }`}
                           >
-                            {item.studentStatus === "submitted" ? "Submitted" : "Pending"}
+                            {item.studentStatus === "submitted"
+                              ? "Submitted"
+                              : item.studentStatus === "not_submitted"
+                              ? "Not Submitted"
+                              : "Pending"}
                           </span>
                         </div>
                       ))}

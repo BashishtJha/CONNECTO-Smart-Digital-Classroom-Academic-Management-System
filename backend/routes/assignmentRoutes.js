@@ -1,52 +1,204 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
+
 const router = express.Router();
 
 const authMiddleware = require("../middleware/authMiddleware");
+const uploadAssignmentPdf = require("../middleware/uploadAssignmentPdf");
 const Assignment = require("../models/Assignment");
 const Subject = require("../models/Subject");
 
+const parseDueDate = (value) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+};
+
+const canManageSubject = (subject, userId) => {
+  if (String(subject.teacher) === userId) return true;
+  return (subject.owners || []).some((ownerId) => String(ownerId) === userId);
+};
+
+const ensureTeacherCanManageSubject = async (subjectId, userId) => {
+  const subject = await Subject.findById(subjectId);
+  if (!subject) {
+    return { error: { status: 404, message: "Subject not found" } };
+  }
+
+  if (!canManageSubject(subject, userId)) {
+    return { error: { status: 403, message: "You can only manage your subject" } };
+  }
+
+  return { subject };
+};
+
+const handleAssignmentUpload = (requireFile = false) => (req, res, next) => {
+  uploadAssignmentPdf.single("file")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ message: "PDF must be 10MB or smaller" });
+      }
+      return res.status(400).json({ message: "Only PDF files are allowed" });
+    }
+
+    if (req.fileValidationError) {
+      return res.status(400).json({ message: req.fileValidationError });
+    }
+
+    if (requireFile && !req.file) {
+      return res.status(400).json({ message: "PDF file is required" });
+    }
+
+    next();
+  });
+};
+
+const removeAttachmentFile = async (attachmentUrl = "") => {
+  if (!attachmentUrl) return;
+
+  const relativePath = String(attachmentUrl).replace(/^\/+/, "");
+  const fullPath = path.join(__dirname, "..", relativePath);
+
+  try {
+    await fs.promises.unlink(fullPath);
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      console.error("Failed to remove assignment PDF:", err);
+    }
+  }
+};
+
 // POST assignment (teacher)
-router.post("/", authMiddleware, async (req, res) => {
+router.post(
+  "/",
+  authMiddleware,
+  handleAssignmentUpload(true),
+  async (req, res) => {
+    try {
+      if (req.user.role !== "teacher") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { subjectId, title, description = "", dueDate } = req.body;
+      if (!subjectId || !title || !dueDate) {
+        return res
+          .status(400)
+          .json({ message: "subjectId, title and dueDate are required" });
+      }
+
+      const parsedDueDate = parseDueDate(dueDate);
+      if (!parsedDueDate) {
+        return res.status(400).json({ message: "Invalid dueDate" });
+      }
+
+      const access = await ensureTeacherCanManageSubject(subjectId, req.user.id);
+      if (access.error) {
+        return res.status(access.error.status).json({ message: access.error.message });
+      }
+
+      const assignment = await Assignment.create({
+        subject: subjectId,
+        title: String(title).trim(),
+        description: String(description || "").trim(),
+        dueDate: parsedDueDate,
+        attachmentUrl: `/uploads/assignments/${req.file.filename}`,
+        createdBy: req.user.id,
+      });
+
+      res.status(201).json(assignment);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to create assignment" });
+    }
+  }
+);
+
+// PUT update assignment (teacher)
+router.put(
+  "/:assignmentId",
+  authMiddleware,
+  handleAssignmentUpload(false),
+  async (req, res) => {
+    try {
+      if (req.user.role !== "teacher") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const { assignmentId } = req.params;
+      const { title, description = "", dueDate } = req.body;
+
+      if (!title || !dueDate) {
+        return res.status(400).json({ message: "title and dueDate are required" });
+      }
+
+      const parsedDueDate = parseDueDate(dueDate);
+      if (!parsedDueDate) {
+        return res.status(400).json({ message: "Invalid dueDate" });
+      }
+
+      const assignment = await Assignment.findById(assignmentId);
+      if (!assignment) {
+        return res.status(404).json({ message: "Assignment not found" });
+      }
+
+      const access = await ensureTeacherCanManageSubject(assignment.subject, req.user.id);
+      if (access.error) {
+        return res.status(access.error.status).json({ message: access.error.message });
+      }
+
+      const previousAttachment = assignment.attachmentUrl;
+
+      assignment.title = String(title).trim();
+      assignment.description = String(description || "").trim();
+      assignment.dueDate = parsedDueDate;
+
+      if (req.file) {
+        assignment.attachmentUrl = `/uploads/assignments/${req.file.filename}`;
+      }
+
+      await assignment.save();
+
+      if (req.file && previousAttachment && previousAttachment !== assignment.attachmentUrl) {
+        await removeAttachmentFile(previousAttachment);
+      }
+
+      res.json(assignment);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to update assignment" });
+    }
+  }
+);
+
+// DELETE assignment (teacher)
+router.delete("/:assignmentId", authMiddleware, async (req, res) => {
   try {
     if (req.user.role !== "teacher") {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    const { subjectId, title, description, dueDate, resources = [] } = req.body;
-
-    if (!subjectId || !title || !dueDate) {
-      return res
-        .status(400)
-        .json({ message: "subjectId, title and dueDate are required" });
+    const { assignmentId } = req.params;
+    const assignment = await Assignment.findById(assignmentId);
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
     }
 
-    const parsedDueDate = new Date(dueDate);
-    if (Number.isNaN(parsedDueDate.getTime())) {
-      return res.status(400).json({ message: "Invalid dueDate" });
+    const access = await ensureTeacherCanManageSubject(assignment.subject, req.user.id);
+    if (access.error) {
+      return res.status(access.error.status).json({ message: access.error.message });
     }
 
-    const subject = await Subject.findById(subjectId);
-    if (!subject) {
-      return res.status(404).json({ message: "Subject not found" });
-    }
+    const attachmentUrl = assignment.attachmentUrl;
+    await Assignment.deleteOne({ _id: assignmentId });
+    await removeAttachmentFile(attachmentUrl);
 
-    if (String(subject.teacher) !== req.user.id) {
-      return res.status(403).json({ message: "You can only add to your subject" });
-    }
-
-    const assignment = await Assignment.create({
-      subject: subjectId,
-      title,
-      description,
-      dueDate: parsedDueDate,
-      resources,
-      createdBy: req.user.id,
-    });
-
-    res.status(201).json(assignment);
+    res.json({ message: "Assignment deleted" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Failed to create assignment" });
+    res.status(500).json({ message: "Failed to delete assignment" });
   }
 });
 
@@ -59,15 +211,21 @@ router.get("/subject/:subjectId", authMiddleware, async (req, res) => {
       .populate("createdBy", "name")
       .sort({ dueDate: 1 });
 
-    // For students, include their per-assignment status summary.
     if (req.user.role === "student") {
+      const now = new Date();
       const studentAssignments = assignments.map((assignment) => {
         const doc = assignment.toObject();
         const submission = doc.submissions.find(
           (item) => String(item.student) === req.user.id
         );
 
-        doc.studentStatus = submission ? submission.status : "pending";
+        const isOverdue = new Date(doc.dueDate).getTime() < now.getTime();
+        doc.studentStatus = submission
+          ? submission.status
+          : isOverdue
+          ? "not_submitted"
+          : "pending";
+        doc.isOverdue = !submission && isOverdue;
         doc.submissionUrl = submission ? submission.submissionUrl : "";
         doc.submittedAt = submission ? submission.submittedAt : null;
 

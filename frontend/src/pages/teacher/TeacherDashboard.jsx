@@ -17,7 +17,7 @@ const TeacherDashboard = () => {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
 
-  const [teacherName, setTeacherName] = useState("Professor Williams");
+  const [teacherName, setTeacherName] = useState("Kailash kumar");
 
   useEffect(() => {
     const fetchUser = async () => {

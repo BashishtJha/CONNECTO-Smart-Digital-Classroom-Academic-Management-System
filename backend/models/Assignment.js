@@ -46,6 +46,11 @@ const assignmentSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    attachmentUrl: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     resources: [
       {
         type: String,
